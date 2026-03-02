@@ -25,9 +25,20 @@ import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import List, Dict, Optional
+import logging
 
 import requests
 import glob
+
+# Setup logging
+logging.basicConfig(
+    filename="/tmp/ytc.log",
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    filemode="a"
+)
+logger = logging.getLogger(__name__)
 
 YT_DLP = os.environ.get("YT_DLP_BIN", "yt-dlp")
 
@@ -42,10 +53,12 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
     """Use yt-dlp to fetch the latest video info for a channel URL or id.
     Returns dict with keys: id, url, title, upload_date, description, thumbnails
     """
+    logger.debug(f"Fetching latest video for channel: {channel}")
     cmd = [YT_DLP, "--flat-playlist", "--print-json", "--skip-download", "--playlist-items", "1", channel]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
+        logger.error(f"yt-dlp failed for {channel}: {e.stderr}")
         print(f"yt-dlp failed for {channel}: {e.stderr}", file=sys.stderr)
         return None
     # yt-dlp prints one JSON per line for each entry
@@ -58,22 +71,28 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
             video_id = j.get("id")
             url = j.get("url") or j.get("id")
             title = j.get("title")
+            logger.info(f"Found video: {video_id} - {title}")
             return {"id": video_id, "url": url, "title": title}
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to parse JSON line: {e}")
             continue
+    logger.warning(f"No videos found for channel: {channel}")
     return None
 
 
 def download_video(video_url: str, outdir: str, video_id: str, filename_template: str = "%(id)s.mp4") -> Optional[str]:
     os.makedirs(outdir, exist_ok=True)
+    logger.debug(f"Downloading {video_url} to {outdir} with template {filename_template}")
     # Request best video+audio and merge/remux output to MP4
     cmd = [YT_DLP, "-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4", "-o", os.path.join(outdir, filename_template), video_url]
     try:
         proc = subprocess.run(cmd)
         if proc.returncode != 0:
+            logger.error(f"yt-dlp exited with {proc.returncode} for {video_url}")
             print(f"yt-dlp exited with {proc.returncode}")
             return None
     except FileNotFoundError:
+        logger.error("yt-dlp not found on PATH")
         print("yt-dlp not found. Install yt-dlp and ensure it's on PATH or set YT_DLP_BIN.")
         return None
     # After download, find the file by looking for video_id.* in outdir
@@ -81,7 +100,10 @@ def download_video(video_url: str, outdir: str, video_id: str, filename_template
     matches = glob.glob(pattern)
     if matches:
         # Return the first match (should be the downloaded file)
-        return os.path.abspath(matches[0])
+        path = os.path.abspath(matches[0])
+        logger.info(f"Download complete: {path}")
+        return path
+    logger.warning(f"No file found after download; pattern was {pattern}")
     return None
 
 
@@ -155,10 +177,13 @@ def send_pushover(token: str, user: str, message: str, title: Optional[str] = No
     if title:
         data["title"] = title
     try:
+        logger.debug(f"Sending Pushover notification: {title} - {message}")
         r = requests.post(url, data=data, timeout=10)
         r.raise_for_status()
+        logger.info("Pushover notification sent successfully")
         return True
     except Exception as e:
+        logger.error(f"Pushover send failed: {e}")
         print(f"Pushover send failed: {e}")
         return False
 
@@ -175,6 +200,8 @@ def fetch_full_metadata_with_ytdlp(video_url: str) -> Optional[Dict]:
 
 
 def main():
+    logger.info("=" * 60)
+    logger.info("Starting YouTube Cacher")
     parser = argparse.ArgumentParser(description="Download latest YouTube videos from channels and tag for Kodi")
     parser.add_argument("--channels", required=True, help="Text file with one channel URL or id per line")
     parser.add_argument("--outdir", default="youtube_cache", help="Directory to save videos and NFOs")
@@ -182,6 +209,7 @@ def main():
     parser.add_argument("--pushover-token", help="Pushover application token (or set PUSHOVER_TOKEN env)")
     parser.add_argument("--pushover-user", help="Pushover user/key (or set PUSHOVER_USER env)")
     args = parser.parse_args()
+    logger.info(f"Options: channels={args.channels}, outdir={args.outdir}, dry_run={args.dry_run}")
 
     channels = read_channels(args.channels)
     session = requests.Session()
@@ -194,9 +222,11 @@ def main():
     episode_counter: Dict[str, int] = {}
 
     for ch in channels:
+        logger.info(f"Processing channel: {ch}")
         print(f"Processing channel: {ch}")
         info = get_latest_video_url_for_channel(ch)
         if not info:
+            logger.warning(f"No latest video found for {ch}")
             print(f"No latest video found for {ch}")
             continue
         vid = info.get("id")
