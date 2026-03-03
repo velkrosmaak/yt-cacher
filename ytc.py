@@ -132,7 +132,10 @@ def write_nfo_for_video(outdir: str, video_id: str, episode_num: int, metadata: 
     title = ET.SubElement(root, "title")
     title.text = metadata.get("title", "")
     
-    # Plot / description
+    # Plot / description - Plex prefers <overview>
+    overview = ET.SubElement(root, "overview")
+    overview.text = metadata.get("description", "")
+    # also include <plot> for compatibility
     plot = ET.SubElement(root, "plot")
     plot.text = metadata.get("description", "")
     
