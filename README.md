@@ -1,5 +1,4 @@
 # yt-cacher
-Caches YouTube subscriptions for viewing in Plex
 
 This script downloads the latest video from a list of YouTube channels defined in `channels.txt`. 
 
