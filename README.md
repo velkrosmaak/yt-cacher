@@ -29,6 +29,13 @@ export PUSHOVER_USER=<userkey>
 Or pass on CLI:
 --pushover-token <token> --pushover-user <userkey>
 
+## Cron setup
+`crontab -e`
+
+Add this to the bottom of your crontab file to run this at 23:15 daily.
+
+`15 23 * * * python /some/directory/yt-cacher/ytc.py --channels /some/directory/yt-cacher/channels.txt --outdir /your/nas/videos/youtube>`
+
 # Usage
 * `--channels` - the path and name of the file containing the list of channels
 * `--outdir` - the directory that files get downloaded to (i.e. Your Plex/Kodi media directory)
