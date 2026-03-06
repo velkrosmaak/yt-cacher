@@ -11,8 +11,10 @@ It has no scheduling and is designed to bre triggered by `cron`.
 
 ## Setup
 * Install Python and pip
+* `git clone https://github.com/velkrosmaak/yt-cacher.git`
+* `cd yt-cacher`
 * `pip install -r requirements.txt`
-* Create a text file called `channels.txt` and add YouTube channel URLs to it. One per line.
+* Create a text file called `channels.txt` and add YouTube channel URLs to it. One per line. This can be anywhere, but take note of the path and name of the file.
  
 ## Notification setup
 

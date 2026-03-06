@@ -221,6 +221,9 @@ def main():
     pushover_token = args.pushover_token or os.environ.get("PUSHOVER_TOKEN")
     pushover_user = args.pushover_user or os.environ.get("PUSHOVER_USER")
 
+    if not pushover_token or not pushover_user:
+        print("Notifications not configured, skipping Pushover notifications.")
+
     # Track episode numbers per channel for Plex TV naming
     episode_counter: Dict[str, int] = {}
 
