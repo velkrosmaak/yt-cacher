@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""youtube-cacher/ytc.py
-Download the latest YouTube video from a list of channels and tag them for Kodi.
 
-Features:
-- Uses `yt-dlp` to list and download the latest video per channel (reliable URL handling).
-- Writes a simple Kodi-compatible `.nfo` alongside the video with title, plot, date, and thumbnails.
-- Skips download if the video file already exists (by video id).
-
-Usage:
-  python ytc.py --channels channels.txt --outdir /path/to/videos --api-key OPTIONAL
-
-Dependencies:
-  - yt-dlp (external executable or python package)
-  - requests
-
-This script prefers calling the `yt-dlp` CLI for simplicity and robust downloading.
-"""
 from __future__ import annotations
 import argparse
 import os
