@@ -43,7 +43,8 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
     if "/@" in channel:
         channel = channel + "/videos"
     
-    cmd = [YT_DLP, "--flat-playlist", "--print-json", "--skip-download", 
+    # Use --sort-downloads to sort by upload date (newest first)
+    cmd = [YT_DLP, "--flat-playlist", "--sort-downloads", "date", "--print-json", "--skip-download", 
            "--playlist-items", "1", channel]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
@@ -61,8 +62,9 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
             video_id = j.get("id")
             url = f"https://www.youtube.com/watch?v={video_id}"
             title = j.get("title")
-            logger.info(f"Found video: {video_id} - {title}")
-            return {"id": video_id, "url": url, "title": title}
+            upload_date = j.get("upload_date")
+            logger.info(f"Found video: {video_id} - {title} (uploaded: {upload_date})")
+            return {"id": video_id, "url": url, "title": title, "upload_date": upload_date}
         except Exception as e:
             logger.debug(f"Failed to parse JSON line: {e}")
             continue
