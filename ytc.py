@@ -44,14 +44,15 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
         channel = channel + "/videos"
     
     cmd = [YT_DLP, "--flat-playlist", "--print-json", "--skip-download",
-           "-S", "epoch~", "--playlist-items", "1", channel]
+           "-S", "epoch~", "--playlist-items", "1-20", channel]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
     except subprocess.CalledProcessError as e:
         logger.error(f"yt-dlp failed for {channel}: {e.stderr}")
         print(f"yt-dlp failed for {channel}: {e.stderr}", file=sys.stderr)
         return None
-    # yt-dlp prints one JSON per line for each entry
+    
+    # Parse all results and take the first (which should be newest after sort)
     for line in proc.stdout.splitlines():
         line = line.strip()
         if not line:
