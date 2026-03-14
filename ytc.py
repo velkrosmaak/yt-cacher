@@ -38,7 +38,9 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
     Returns dict with keys: id, url, title, upload_date, description, thumbnails
     """
     logger.debug(f"Fetching latest video for channel: {channel}")
-    cmd = [YT_DLP, "--flat-playlist", "--print-json", "--skip-download", "--playlist-items", "1", channel]
+    # Use tabs=videos to get the uploads tab, skip cache, get only 1 entry
+    cmd = [YT_DLP, "--extract-flat=in_playlist", "--print-json", "--skip-download", 
+           "--playlist-items", "1", "--no-cache-dir", channel]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
@@ -53,7 +55,7 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
         try:
             j = json.loads(line)
             video_id = j.get("id")
-            url = j.get("url") or j.get("id")
+            url = j.get("url") or f"https://www.youtube.com/watch?v={j.get('id')}"
             title = j.get("title")
             logger.info(f"Found video: {video_id} - {title}")
             return {"id": video_id, "url": url, "title": title}
