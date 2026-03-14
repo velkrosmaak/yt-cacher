@@ -44,7 +44,7 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
         channel = channel + "/videos"
     
     cmd = [YT_DLP, "--flat-playlist", "--print-json", "--skip-download",
-           "-S", "upload_date~", "--playlist-items", "1", channel]
+           "-S", "epoch~", "--playlist-items", "1", channel]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
     except subprocess.CalledProcessError as e:
