@@ -38,6 +38,12 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
     Returns dict with keys: id, url, title, upload_date, description, thumbnails
     """
     logger.debug(f"Fetching latest video for channel: {channel}")
+    
+    # Convert @handle to uploads playlist URL
+    if "/@" in channel:
+        # Extract handle and convert to uploads tab
+        channel = channel.replace("/@", "/") + "/videos"
+    
     cmd = [YT_DLP, "--flat-playlist", "--print-json", "--skip-download", 
            "--playlist-items", "1", "-o", "%(id)s", channel]
     try:
