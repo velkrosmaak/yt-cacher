@@ -186,8 +186,10 @@ def fetch_full_metadata_with_ytdlp(video_url: str) -> Optional[Dict]:
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
         j = json.loads(proc.stdout)
+        logger.debug(f"Fetched metadata for {video_url}: id={j.get('id')}, title={j.get('title')}")
         return j
     except Exception as e:
+        logger.error(f"Failed to fetch metadata for {video_url}: {e}")
         print(f"Failed to fetch metadata for {video_url}: {e}")
         return None
 
@@ -227,7 +229,12 @@ def main():
             continue
         vid = info.get("id")
         vurl = info.get("url")
+        
+        # Fetch full metadata using the video URL we already determined
         full_meta = fetch_full_metadata_with_ytdlp(vurl)
+        logger.debug(f"Full metadata video ID: {full_meta.get('id') if full_meta else 'N/A'}")
+        logger.debug(f"Initial info video ID: {vid}")
+        
         if args.dry_run:
             print(json.dumps({"channel": ch, "video": info, "meta": (full_meta or {})}, indent=2))
             continue
