@@ -39,13 +39,12 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
     """
     logger.debug(f"Fetching latest video for channel: {channel}")
     
-    # Convert @handle to uploads playlist URL
+    # Convert @handle to videos tab URL properly
     if "/@" in channel:
-        # Extract handle and convert to uploads tab
-        channel = channel.replace("/@", "/") + "/videos"
+        channel = channel + "/videos"
     
     cmd = [YT_DLP, "--flat-playlist", "--print-json", "--skip-download", 
-           "--playlist-items", "1", "-o", "%(id)s", channel]
+           "--playlist-items", "1", channel]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
     except subprocess.CalledProcessError as e:
