@@ -43,19 +43,14 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
     if "/@" in channel:
         channel = channel + "/videos"
     
-    # Fetch multiple videos and parse to find the newest one
     cmd = [YT_DLP, "--flat-playlist", "--print-json", "--skip-download", 
-           "--playlist-items", "1-50", channel]
+           "--playlist-items", "1", channel]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
     except subprocess.CalledProcessError as e:
         logger.error(f"yt-dlp failed for {channel}: {e.stderr}")
         print(f"yt-dlp failed for {channel}: {e.stderr}", file=sys.stderr)
         return None
-    
-    latest_video = None
-    latest_date = None
-    
     # yt-dlp prints one JSON per line for each entry
     for line in proc.stdout.splitlines():
         line = line.strip()
@@ -63,24 +58,14 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
             continue
         try:
             j = json.loads(line)
-            upload_date = j.get("upload_date")
-            
-            # Compare dates to find the newest
-            if upload_date and (latest_date is None or upload_date > latest_date):
-                latest_date = upload_date
-                video_id = j.get("id")
-                url = f"https://www.youtube.com/watch?v={video_id}"
-                title = j.get("title")
-                latest_video = {"id": video_id, "url": url, "title": title, "upload_date": upload_date}
-                
+            video_id = j.get("id")
+            url = f"https://www.youtube.com/watch?v={video_id}"
+            title = j.get("title")
+            logger.info(f"Found video: {video_id} - {title}")
+            return {"id": video_id, "url": url, "title": title}
         except Exception as e:
             logger.debug(f"Failed to parse JSON line: {e}")
             continue
-    
-    if latest_video:
-        logger.info(f"Found latest video: {latest_video['id']} - {latest_video['title']} (uploaded: {latest_date})")
-        return latest_video
-    
     logger.warning(f"No videos found for channel: {channel}")
     return None
 
