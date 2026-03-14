@@ -238,12 +238,17 @@ def main():
         if args.dry_run:
             print(json.dumps({"channel": ch, "video": info}, indent=2))
             continue
-        # decide directory based on uploader/channel name (for Plex TV shows structure)
-        chan_name = None
-        if full_meta:
-            chan_name = full_meta.get("uploader") or full_meta.get("channel")
-        if not chan_name:
-            chan_name = ch
+        
+        # Extract channel name from URL (remove @ prefix if present)
+        chan_name = ch
+        if "/@" in ch:
+            # Extract just the handle name after /@
+            chan_name = ch.split("/@")[-1].split("/")[0]
+        elif "/c/" in ch:
+            chan_name = ch.split("/c/")[-1].split("/")[0]
+        elif "/user/" in ch:
+            chan_name = ch.split("/user/")[-1].split("/")[0]
+        
         chan_name = sanitize_filename(chan_name)
         
         # Initialize episode counter for this channel if needed
@@ -254,41 +259,41 @@ def main():
         
         ep_num = episode_counter[chan_name]
         
-        # Plex TV shows structure: TVShows/<Show Name>/Season 01/
+        # Directory: outdir/ChannelName/Season 01/
         video_outdir = os.path.abspath(os.path.join(args.outdir, chan_name, "Season 01"))
         
-        # build filename from title with Plex naming: Show - s01eNN - Title
-        title = None
-        if full_meta:
-            title = full_meta.get("title")
-        if not title:
-            title = info.get("title")
-        title = sanitize_filename(title or vid)
+        # Get title for filename
+        title = full_meta.get("title", vid) if full_meta else (info.get("title") or vid)
+        title = sanitize_filename(title)
         
-        # Plex episode naming: Channel Name - s01eNN - Video Title.mp4
+        # Filename: ChannelName - s01e## - VideoTitle.mp4
         plex_filename = f"{chan_name} - s01e{ep_num:02d} - {title}.mp4"
         
-        # check existence in subdir
+        # Check if episode already exists
         exists = False
         if os.path.isdir(video_outdir):
-            # Look for any file with same channel/episode number
             for fn in os.listdir(video_outdir):
-                if f"s01e{ep_num:02d}" in fn:
+                if f"s01e{ep_num:02d}" in fn and fn.endswith('.mp4'):
                     print(f"Episode already present as {fn}, skipping download")
+                    logger.info(f"Episode already exists: {fn}")
                     exists = True
                     break
+        
         if not exists:
             print(f"Downloading {vurl} -> {video_outdir}/{plex_filename}")
+            logger.info(f"Downloading: {vurl}")
             downloaded_path = download_video(vurl, video_outdir, vid, filename_template=plex_filename)
         else:
             downloaded_path = None
-        # write nfo using metadata (Plex episode format)
+        
+        # Write NFO file
         write_nfo_for_video(video_outdir, vid, ep_num, full_meta or {})
-        # notify if new
+        
+        # Send notification if downloaded
         if downloaded_path:
             print(f"Downloaded to {downloaded_path}")
             if pushover_token and pushover_user:
-                msg = f"{chan_name}: s01e{ep_num:02d} - {title}"
+                msg = f"{chan_name} - s01e{ep_num:02d} - {title}"
                 send_pushover(pushover_token, pushover_user, msg, title="YouTube Cacher: Download complete")
 
 
