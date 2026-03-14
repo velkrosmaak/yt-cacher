@@ -44,7 +44,7 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
         channel = channel + "/videos"
     
     cmd = [YT_DLP, "--flat-playlist", "--print-json", "--skip-download",
-           "-S", "epoch~", "--playlist-items", "1", channel]
+           "-S", "epoch~", "--playlist-items", "1-20", channel]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
     except subprocess.CalledProcessError as e:
@@ -62,7 +62,8 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
             url = f"https://www.youtube.com/watch?v={video_id}"
             title = j.get("title")
             logger.info(f"Found video: {video_id} - {title}")
-            return {"id": video_id, "url": url, "title": title}
+            # Return the full flat-playlist metadata, not just basic fields
+            return j
         except Exception as e:
             logger.debug(f"Failed to parse JSON line: {e}")
             continue
@@ -227,16 +228,15 @@ def main():
             logger.warning(f"No latest video found for {ch}")
             print(f"No latest video found for {ch}")
             continue
-        vid = info.get("id")
-        vurl = info.get("url")
         
-        # Fetch full metadata using the video URL we already determined
-        full_meta = fetch_full_metadata_with_ytdlp(vurl)
-        logger.debug(f"Full metadata video ID: {full_meta.get('id') if full_meta else 'N/A'}")
-        logger.debug(f"Initial info video ID: {vid}")
+        vid = info.get("id")
+        vurl = info.get("url") or f"https://www.youtube.com/watch?v={vid}"
+        full_meta = info  # Use the metadata we already fetched
+        
+        logger.debug(f"Using video ID: {vid}, title: {info.get('title')}")
         
         if args.dry_run:
-            print(json.dumps({"channel": ch, "video": info, "meta": (full_meta or {})}, indent=2))
+            print(json.dumps({"channel": ch, "video": info}, indent=2))
             continue
         # decide directory based on uploader/channel name (for Plex TV shows structure)
         chan_name = None
