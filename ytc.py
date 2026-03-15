@@ -6,10 +6,12 @@ import os
 import sys
 import subprocess
 import json
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import List, Dict, Optional
 import logging
 
+import requests
 import glob
 
 # Setup logging
