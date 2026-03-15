@@ -39,11 +39,11 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
     logger.debug(f"Fetching latest video for channel: {channel}")
     
     # Convert @handle to videos tab URL properly
-    if "/@" in channel:
-        channel = channel + "/videos"
+    # if "/@" in channel:
+    #     channel = channel + "/videos"
     
     cmd = ["yt-dlp", "--flat-playlist", "--print-json", "--skip-download",
-           "-S", "epoch~", "--playlist-items", "1", channel]
+           "-S", "epoch~", "--playlist-items", "1-10", channel]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
     except subprocess.CalledProcessError as e:
@@ -51,19 +51,24 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
         print(f"yt-dlp failed for {channel}: {e.stderr}", file=sys.stderr)
         return None
     # yt-dlp prints one JSON per line for each entry
+    videos = []
     for line in proc.stdout.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             j = json.loads(line)
-            logger.info(f"Found video: {j.get('id')} - {j.get('title')}")
-            return j
+            videos.append(j)
         except Exception as e:
             logger.debug(f"Failed to parse JSON line: {e}")
             continue
-    logger.warning(f"No videos found for channel: {channel}")
-    return None
+    if not videos:
+        logger.warning(f"No videos found for channel: {channel}")
+        return None
+    # Find the latest by epoch (upload timestamp)
+    latest = max(videos, key=lambda v: v.get('epoch', 0))
+    logger.info(f"Found latest video: {latest.get('id')} - {latest.get('title')}")
+    return latest
 
 
 def download_video(video_url: str, outdir: str, video_id: str, filename_template: str = "%(id)s.mp4") -> Optional[str]:
