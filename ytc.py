@@ -266,7 +266,7 @@ def main():
         
         vid = info.get("id")
         vurl = info.get("url") or f"https://www.youtube.com/watch?v={vid}"
-        full_meta = fetch_full_metadata_with_pytube(vurl) or info  # Fallback to basic info
+        full_meta = info  # Use the metadata from RSS
         
         logger.debug(f"Using video ID: {vid}, title: {info.get('title')}")
         
