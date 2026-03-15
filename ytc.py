@@ -65,8 +65,8 @@ def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
     if not videos:
         logger.warning(f"No videos found for channel: {channel}")
         return None
-    # Find the latest by epoch (upload timestamp)
-    latest = max(videos, key=lambda v: v.get('epoch', 0))
+    # Find the latest by smallest playlist_index (1 is newest)
+    latest = min(videos, key=lambda v: v.get('playlist_index', float('inf')))
     logger.info(f"Found latest video: {latest.get('id')} - {latest.get('title')}")
     return latest
 
