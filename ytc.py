@@ -71,7 +71,7 @@ def download_video(video_url: str, outdir: str, video_id: str, filename_template
     os.makedirs(outdir, exist_ok=True)
     logger.debug(f"Downloading {video_url} to {outdir} with template {filename_template}")
     # Request best video+audio and merge/remux output to MP4
-    cmd = ["yt-dlp", "-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4", "-o", os.path.join(outdir, filename_template), video_url]
+    cmd = ["yt-dlp", "-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4", "--no-playlist", "-o", os.path.join(outdir, filename_template), video_url]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
@@ -212,7 +212,7 @@ def main():
             continue
         
         vid = info.get("id")
-        vurl = info.get("url") or f"https://www.youtube.com/watch?v={vid}"
+        vurl = f"https://www.youtube.com/watch?v={vid}"
         full_meta = info  # Use the metadata from RSS
         
         logger.debug(f"Using video ID: {vid}, title: {info.get('title')}")
