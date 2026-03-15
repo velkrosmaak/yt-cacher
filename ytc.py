@@ -4,16 +4,13 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import subprocess
 import json
-import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import List, Dict, Optional
 import logging
 
-import requests
 import glob
-from pytube import YouTube
-import re
 
 # Setup logging
 logging.basicConfig(
@@ -26,56 +23,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def get_channel_id_from_url(channel_url: str) -> Optional[str]:
-    """Extract channel ID from YouTube channel URL by fetching the page."""
-    try:
-        r = requests.get(channel_url, timeout=10)
-        r.raise_for_status()
-        # Look for channelId in JSON
-        match = re.search(r'"channelId":"(UC[^"]+)"', r.text)
-        if match:
-            return match.group(1)
-        # Or from canonical link
-        match = re.search(r'href="https://www.youtube.com/channel/(UC[^"]+)"', r.text)
-        if match:
-            return match.group(1)
-    except Exception as e:
-        logger.error(f"Failed to get channel ID from {channel_url}: {e}")
-    return None
-
-
-def get_latest_video_from_rss(channel_id: str) -> Optional[Dict]:
-    """Get latest video from YouTube RSS feed."""
-    rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-    try:
-        r = requests.get(rss_url, timeout=10)
-        r.raise_for_status()
-        root = ET.fromstring(r.text)
-        entry = root.find('{http://www.w3.org/2005/Atom}entry')
-        if entry is not None:
-            video_id = entry.find('{http://www.w3.org/2005/Atom}id').text.split(':')[-1]
-            title = entry.find('{http://www.w3.org/2005/Atom}title').text
-            published = entry.find('{http://www.w3.org/2005/Atom}published').text
-            # Convert to YYYYMMDD
-            upload_date = published[:10].replace('-', '')
-            description = entry.find('{http://www.w3.org/2005/Atom}summary').text if entry.find('{http://www.w3.org/2005/Atom}summary') else ''
-            # Thumbnails from media:thumbnail
-            thumbnails = []
-            for thumb in entry.findall('.//{http://search.yahoo.com/mrss/}thumbnail'):
-                thumbnails.append({'url': thumb.get('url')})
-            return {
-                'id': video_id,
-                'url': f"https://www.youtube.com/watch?v={video_id}",
-                'title': title,
-                'upload_date': upload_date,
-                'description': description,
-                'thumbnails': thumbnails
-            }
-    except Exception as e:
-        logger.error(f"Failed to get latest video from RSS for {channel_id}: {e}")
-    return None
-
-
 def read_channels(path: str) -> List[str]:
     with open(path, "r", encoding="utf-8") as fh:
         lines = [l.strip() for l in fh if l.strip() and not l.strip().startswith("#")]
@@ -83,17 +30,38 @@ def read_channels(path: str) -> List[str]:
 
 
 def get_latest_video_url_for_channel(channel: str) -> Optional[Dict]:
-    """Fetch the latest video info for a channel URL.
+    """Fetch the latest video info for a channel URL using yt-dlp.
     Returns dict with keys: id, url, title, upload_date, description, thumbnails
     """
+    import subprocess
     logger.debug(f"Fetching latest video for channel: {channel}")
     
-    channel_id = get_channel_id_from_url(channel)
-    if not channel_id:
-        logger.error(f"Could not find channel ID for {channel}")
-        return None
+    # Convert @handle to videos tab URL properly
+    if "/@" in channel:
+        channel = channel + "/videos"
     
-    return get_latest_video_from_rss(channel_id)
+    cmd = ["yt-dlp", "--flat-playlist", "--print-json", "--skip-download",
+           "-S", "epoch~", "--playlist-items", "1", channel]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"yt-dlp failed for {channel}: {e.stderr}")
+        print(f"yt-dlp failed for {channel}: {e.stderr}", file=sys.stderr)
+        return None
+    # yt-dlp prints one JSON per line for each entry
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            j = json.loads(line)
+            logger.info(f"Found video: {j.get('id')} - {j.get('title')}")
+            return j
+        except Exception as e:
+            logger.debug(f"Failed to parse JSON line: {e}")
+            continue
+    logger.warning(f"No videos found for channel: {channel}")
+    return None
 
 
 def download_video(video_url: str, outdir: str, video_id: str, filename_template: str = "%(id)s.mp4") -> Optional[str]:
@@ -208,28 +176,6 @@ def send_pushover(token: str, user: str, message: str, title: Optional[str] = No
         return False
 
 
-def fetch_full_metadata_with_pytube(video_url: str) -> Optional[Dict]:
-    from pytube import YouTube
-    try:
-        yt = YouTube(video_url)
-        metadata = {
-            'id': yt.video_id,
-            'title': yt.title,
-            'description': yt.description,
-            'upload_date': yt.publish_date.strftime('%Y%m%d'),
-            'duration': yt.length,
-            'thumbnails': [{'url': yt.thumbnail_url}],
-            'uploader': yt.author,
-            'view_count': yt.views,
-        }
-        logger.debug(f"Fetched metadata for {video_url}: id={metadata['id']}, title={metadata['title']}")
-        return metadata
-    except Exception as e:
-        logger.error(f"Failed to fetch metadata for {video_url}: {e}")
-        print(f"Failed to fetch metadata for {video_url}: {e}")
-        return None
-
-
 def main():
     logger.info("=" * 60)
     logger.info("Starting YouTube Cacher")
@@ -243,7 +189,6 @@ def main():
     logger.info(f"Options: channels={args.channels}, outdir={args.outdir}, dry_run={args.dry_run}")
 
     channels = read_channels(args.channels)
-    session = requests.Session()
 
     # Pushover config (CLI args override environment)
     pushover_token = args.pushover_token or os.environ.get("PUSHOVER_TOKEN")

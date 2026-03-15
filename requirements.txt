@@ -1,3 +1,1 @@
-pytube
 yt-dlp
-requests
