@@ -1,2 +1,1 @@
-yt-dlp
-requests
+yt-dlp>=2025.0.0
