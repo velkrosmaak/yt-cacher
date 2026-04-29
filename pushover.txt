@@ -1,0 +1,6 @@
+# Pushover credentials
+# Create an application in Pushover and paste its API token below.
+# Find your user key in the Pushover app or dashboard.
+
+app_token=
+user_key=

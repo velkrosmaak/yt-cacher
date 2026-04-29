@@ -13,6 +13,7 @@ The script:
       DEST_ROOT/<channel>/Season 1/s01eNN <channel> - <video title>.mp4
   - embeds basic MP4 metadata to help media managers
   - creates Plex-friendly NFO sidecar metadata files
+  - optionally sends Pushover notifications for new downloads
   - skips channels whose latest video is already present
 """
 
@@ -24,6 +25,8 @@ import sys
 import json
 import subprocess
 from pathlib import Path
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
 import yt_dlp
@@ -34,6 +37,9 @@ DEST_ROOT = Path("cache")
 
 # Path to the text file containing one YouTube channel URL per line.
 CHANNELS_FILE = Path("channels.txt")
+
+# Path to Pushover credentials in key=value format.
+PUSHOVER_FILE = Path("pushover.txt")
 
 # Plex TV-style folder naming works best with "Season 1".
 SEASON_NAME = "Season 1"
@@ -63,6 +69,63 @@ def load_channels(path: Path) -> list[str]:
             continue
         channels.append(line)
     return channels
+
+
+def load_key_value_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip().lower()] = value.strip()
+    return values
+
+
+def load_pushover_config(path: Path) -> dict[str, str] | None:
+    config = load_key_value_file(path)
+    if not config:
+        return None
+
+    user = config.get("user_key")
+    token = config.get("app_token")
+    if not user or not token:
+        print(
+            f"Pushover config at {path} is missing user_key or app_token; notifications disabled.",
+            file=sys.stderr,
+        )
+        return None
+    return {"user_key": user, "app_token": token}
+
+
+def send_pushover_notification(
+    config: dict[str, str] | None,
+    channel_name: str,
+    episode_title: str,
+) -> None:
+    if not config:
+        return
+
+    payload = urlencode(
+        {
+            "token": config["app_token"],
+            "user": config["user_key"],
+            "title": "New YouTube episode downloaded",
+            "message": f"{channel_name}\n{episode_title}",
+        }
+    ).encode("utf-8")
+    request = Request(
+        "https://api.pushover.net/1/messages.json",
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+
+    with urlopen(request, timeout=15) as response:
+        response.read()
 
 
 def latest_video_info(channel_url: str) -> dict:
@@ -286,7 +349,7 @@ def download_video(video_info: dict, target_path: Path, channel_name: str, episo
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def process_channel(channel_url: str) -> None:
+def process_channel(channel_url: str, pushover_config: dict[str, str] | None) -> None:
     video_info = latest_video_info(channel_url)
 
     channel_name = sanitize_name(
@@ -323,12 +386,17 @@ def process_channel(channel_url: str) -> None:
         episode_number,
     )
     write_video_index(season_dir, video_id, target_path.name)
+    try:
+        send_pushover_notification(pushover_config, safe_channel, video_title)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Notification failed for {safe_channel}: {exc}", file=sys.stderr)
     print(f"Saved to {target_path}")
 
 
 def main() -> int:
     try:
         channels = load_channels(CHANNELS_FILE)
+        pushover_config = load_pushover_config(PUSHOVER_FILE)
         if not channels:
             print(f"No channel URLs found in {CHANNELS_FILE}")
             return 1
@@ -337,7 +405,7 @@ def main() -> int:
 
         for channel_url in channels:
             try:
-                process_channel(channel_url)
+                process_channel(channel_url, pushover_config)
             except Exception as exc:  # noqa: BLE001
                 print(f"Failed for {channel_url}: {exc}", file=sys.stderr)
 
