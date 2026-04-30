@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+import os
 import re
 import shutil
 import sys
@@ -31,7 +32,10 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
-import yt_dlp
+try:
+    import yt_dlp
+except ModuleNotFoundError:
+    yt_dlp = None
 
 
 # Default output directory when --outdir is not provided.
@@ -45,6 +49,7 @@ PUSHOVER_FILE = Path("pushover.txt")
 
 # Log file appended on each run.
 LOG_FILE = Path(__file__).resolve().parent / "yt-cache.log"
+README_FILE = Path(__file__).resolve().parent / "README.md"
 
 # Plex TV-style folder naming works best with "Season 1".
 SEASON_NAME = "Season 1"
@@ -73,6 +78,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def fail_startup(message: str) -> int:
+    print(f"Startup validation failed: {message}", file=sys.stderr)
+    print(f"See {README_FILE} for setup and usage details.", file=sys.stderr)
+    return 1
+
+
 def sanitize_name(value: str, fallback: str) -> str:
     cleaned = INVALID_FILENAME_CHARS.sub("", value).strip()
     cleaned = re.sub(r"\s+", " ", cleaned)
@@ -93,6 +104,50 @@ def load_channels(path: Path) -> list[str]:
             continue
         channels.append(line)
     return channels
+
+
+def validate_startup(
+    outdir: Path,
+    channels_file: Path,
+    pushover_file: Path,
+    log_file: Path,
+) -> str | None:
+    if yt_dlp is None:
+        return "Missing Python dependency 'yt-dlp'. Install it with: pip install -r requirements.txt"
+
+    if shutil.which("ffmpeg") is None:
+        return "Missing system dependency 'ffmpeg'. Install ffmpeg and ensure it is on PATH."
+
+    if not channels_file.exists():
+        return f"Channel list file does not exist: {channels_file}"
+    if not channels_file.is_file():
+        return f"Channel list path is not a file: {channels_file}"
+
+    try:
+        channels_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"Channel list file is not readable: {channels_file} ({exc})"
+
+    try:
+        outdir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return f"Could not create output directory {outdir}: {exc}"
+    if not outdir.is_dir():
+        return f"Output path is not a directory: {outdir}"
+    if not os.access(outdir, os.W_OK):
+        return f"Output directory is not writable: {outdir}"
+
+    try:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8"):
+            pass
+    except OSError as exc:
+        return f"Log file is not writable: {log_file} ({exc})"
+
+    if pushover_file.exists() and pushover_file.is_dir():
+        return f"Pushover config path is a directory, not a file: {pushover_file}"
+
+    return None
 
 
 def load_key_value_file(path: Path) -> dict[str, str]:
@@ -438,15 +493,25 @@ def main() -> int:
     try:
         args = parse_args()
         global DEST_ROOT, CHANNELS_FILE
-        DEST_ROOT = args.outdir
-        CHANNELS_FILE = args.channels
+        DEST_ROOT = args.outdir.expanduser().resolve()
+        CHANNELS_FILE = args.channels.expanduser().resolve()
+
+        startup_error = validate_startup(
+            DEST_ROOT,
+            CHANNELS_FILE,
+            PUSHOVER_FILE.resolve(),
+            LOG_FILE,
+        )
+        if startup_error:
+            return fail_startup(startup_error)
 
         channels = load_channels(CHANNELS_FILE)
         pushover_config = load_pushover_config(PUSHOVER_FILE)
         downloaded_items: list[tuple[str, str]] = []
         if not channels:
-            print(f"No channel URLs found in {CHANNELS_FILE}")
-            return 1
+            return fail_startup(
+                f"No channel URLs found in {CHANNELS_FILE}. Add one YouTube channel URL per line."
+            )
 
         ensure_directory(DEST_ROOT)
 
