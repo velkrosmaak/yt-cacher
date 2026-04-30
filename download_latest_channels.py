@@ -20,6 +20,7 @@ The script:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import re
 import shutil
 import sys
@@ -41,6 +42,9 @@ CHANNELS_FILE = Path.cwd() / "channels.txt"
 
 # Path to Pushover credentials in key=value format.
 PUSHOVER_FILE = Path("pushover.txt")
+
+# Log file appended on each run.
+LOG_FILE = Path(__file__).resolve().parent / "yt-cache.log"
 
 # Plex TV-style folder naming works best with "Season 1".
 SEASON_NAME = "Season 1"
@@ -146,6 +150,19 @@ def send_pushover_notification(
 
     with urlopen(request, timeout=15) as response:
         response.read()
+
+
+def append_run_log(log_path: Path, downloads: list[tuple[str, str]]) -> None:
+    timestamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    lines = [f"[{timestamp}]"]
+    if downloads:
+        lines.extend(f"- {channel_name}: {episode_title}" for channel_name, episode_title in downloads)
+    else:
+        lines.append("- No new videos downloaded.")
+
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+        handle.write("\n\n")
 
 
 def latest_video_info(channel_url: str) -> dict:
@@ -369,7 +386,10 @@ def download_video(video_info: dict, target_path: Path, channel_name: str, episo
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def process_channel(channel_url: str, pushover_config: dict[str, str] | None) -> None:
+def process_channel(
+    channel_url: str,
+    pushover_config: dict[str, str] | None,
+) -> tuple[str, str] | None:
     video_info = latest_video_info(channel_url)
 
     channel_name = sanitize_name(
@@ -393,7 +413,7 @@ def process_channel(channel_url: str, pushover_config: dict[str, str] | None) ->
     already_downloaded = existing_video_for_id(season_dir, video_id)
     if already_downloaded:
         print(f"Skipping {channel_name}: latest video already exists at {already_downloaded}")
-        return
+        return None
 
     episode_number = next_episode_number(season_dir)
     target_path, safe_channel = build_destination_paths(channel_name, video_title, episode_number)
@@ -411,6 +431,7 @@ def process_channel(channel_url: str, pushover_config: dict[str, str] | None) ->
     except Exception as exc:  # noqa: BLE001
         print(f"Notification failed for {safe_channel}: {exc}", file=sys.stderr)
     print(f"Saved to {target_path}")
+    return safe_channel, video_title
 
 
 def main() -> int:
@@ -422,6 +443,7 @@ def main() -> int:
 
         channels = load_channels(CHANNELS_FILE)
         pushover_config = load_pushover_config(PUSHOVER_FILE)
+        downloaded_items: list[tuple[str, str]] = []
         if not channels:
             print(f"No channel URLs found in {CHANNELS_FILE}")
             return 1
@@ -430,10 +452,13 @@ def main() -> int:
 
         for channel_url in channels:
             try:
-                process_channel(channel_url, pushover_config)
+                result = process_channel(channel_url, pushover_config)
+                if result:
+                    downloaded_items.append(result)
             except Exception as exc:  # noqa: BLE001
                 print(f"Failed for {channel_url}: {exc}", file=sys.stderr)
 
+        append_run_log(LOG_FILE, downloaded_items)
         return 0
     except Exception as exc:  # noqa: BLE001
         print(str(exc), file=sys.stderr)
