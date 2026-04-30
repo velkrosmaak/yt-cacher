@@ -19,6 +19,7 @@ The script:
 
 from __future__ import annotations
 
+import argparse
 import re
 import shutil
 import sys
@@ -32,11 +33,11 @@ import xml.etree.ElementTree as ET
 import yt_dlp
 
 
-# Update this to wherever Plex scans your library from.
-DEST_ROOT = Path("cache")
+# Default output directory when --outdir is not provided.
+DEST_ROOT = Path.cwd()
 
-# Path to the text file containing one YouTube channel URL per line.
-CHANNELS_FILE = Path("channels.txt")
+# Default channel list path when --channels is not provided.
+CHANNELS_FILE = Path.cwd() / "channels.txt"
 
 # Path to Pushover credentials in key=value format.
 PUSHOVER_FILE = Path("pushover.txt")
@@ -47,6 +48,25 @@ SEASON_NAME = "Season 1"
 
 INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1F]')
 EPISODE_PATTERN = re.compile(r"^s01e(\d{2,})\b", re.IGNORECASE)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Download the latest released video from each YouTube channel in a list."
+    )
+    parser.add_argument(
+        "--outdir",
+        type=Path,
+        default=DEST_ROOT,
+        help="Directory where the show folders and episodes will be written.",
+    )
+    parser.add_argument(
+        "--channels",
+        type=Path,
+        default=CHANNELS_FILE,
+        help="Text file containing one YouTube channel URL per line.",
+    )
+    return parser.parse_args()
 
 
 def sanitize_name(value: str, fallback: str) -> str:
@@ -395,6 +415,11 @@ def process_channel(channel_url: str, pushover_config: dict[str, str] | None) ->
 
 def main() -> int:
     try:
+        args = parse_args()
+        global DEST_ROOT, CHANNELS_FILE
+        DEST_ROOT = args.outdir
+        CHANNELS_FILE = args.channels
+
         channels = load_channels(CHANNELS_FILE)
         pushover_config = load_pushover_config(PUSHOVER_FILE)
         if not channels:
