@@ -14,7 +14,17 @@ It has no scheduling and is designed to bre triggered by `cron`.
 * `git clone https://github.com/velkrosmaak/yt-cacher.git`
 * `cd yt-cacher`
 * `pip install -r requirements.txt`
+* Install `ffmpeg` and make sure it is available on your `PATH`
 * Create a text file called `channels.txt` and add YouTube channel URLs to it, one per line. This can be anywhere.
+
+On startup, the script validates that:
+* `yt-dlp` is installed
+* `ffmpeg` is installed and on `PATH`
+* the `--channels` file exists and is readable
+* the `--outdir` directory can be created and written to
+* the log file can be written
+
+If one of these checks fails, the CLI prints a clear error and points back to this `README.md`.
  
 ## Notification setup
 

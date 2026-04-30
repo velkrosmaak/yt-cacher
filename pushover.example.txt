@@ -2,5 +2,5 @@
 # Create an application in Pushover and paste its API token below.
 # Find your user key in the Pushover app or dashboard.
 
-app_token=
-user_key=
+app_token=at9v4nieqfe5umxsdzqrrbsa4b37f8
+user_key=E39qNsxuZF8cPnsj58DCAGCNcekYQV
