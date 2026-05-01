@@ -14,6 +14,7 @@ The script:
   - embeds basic MP4 metadata to help media managers
   - creates Plex-friendly NFO sidecar metadata files
   - optionally sends Pushover notifications for new downloads
+  - optionally trims sponsor segments using SponsorBlock
   - skips channels whose latest video is already present
 """
 
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+import hashlib
 import os
 import re
 import shutil
@@ -74,6 +76,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=CHANNELS_FILE,
         help="Text file containing one YouTube channel URL per line.",
+    )
+    parser.add_argument(
+        "--trim-sponsors",
+        action="store_true",
+        help="Trim SponsorBlock sponsor segments from downloaded videos.",
     )
     return parser.parse_args()
 
@@ -184,16 +191,21 @@ def send_pushover_notification(
     config: dict[str, str] | None,
     channel_name: str,
     episode_title: str,
+    sponsorblock_trimmed: bool,
 ) -> None:
     if not config:
         return
+
+    message = f"{channel_name}\n{episode_title}"
+    if sponsorblock_trimmed:
+        message += "\nSponsorBlock removed sponsor segments."
 
     payload = urlencode(
         {
             "token": config["app_token"],
             "user": config["user_key"],
             "title": "New YouTube episode downloaded",
-            "message": f"{channel_name}\n{episode_title}",
+            "message": message,
         }
     ).encode("utf-8")
     request = Request(
@@ -218,6 +230,127 @@ def append_run_log(log_path: Path, downloads: list[tuple[str, str]]) -> None:
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
         handle.write("\n\n")
+
+
+def fetch_sponsor_segments(video_id: str) -> list[list[float]]:
+    payload = urlencode({
+        "videoID": video_id,
+        "category": "sponsor",
+        "actionType": "skip",
+    })
+    request = Request(
+        f"https://sponsor.ajay.app/api/skipSegments?{payload}",
+        headers={"User-Agent": "yt-cacher/1.0"},
+        method="GET",
+    )
+    with urlopen(request, timeout=15) as response:
+        data = json.loads(response.read().decode("utf-8"))
+
+    segments: list[list[float]] = []
+    for item in data:
+        segment = item.get("segment")
+        if (
+            isinstance(segment, list)
+            and len(segment) == 2
+            and all(isinstance(value, (int, float)) for value in segment)
+        ):
+            start, end = float(segment[0]), float(segment[1])
+            if end > start:
+                segments.append([start, end])
+    return sorted(segments, key=lambda item: item[0])
+
+
+def build_keep_segments(duration: float, skip_segments: list[list[float]]) -> list[list[float]]:
+    if duration <= 0:
+        return []
+
+    merged: list[list[float]] = []
+    for start, end in skip_segments:
+        bounded_start = max(0.0, min(duration, start))
+        bounded_end = max(0.0, min(duration, end))
+        if bounded_end <= bounded_start:
+            continue
+        if merged and bounded_start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], bounded_end)
+        else:
+            merged.append([bounded_start, bounded_end])
+
+    keep_segments: list[list[float]] = []
+    cursor = 0.0
+    for start, end in merged:
+        if start > cursor:
+            keep_segments.append([cursor, start])
+        cursor = max(cursor, end)
+    if cursor < duration:
+        keep_segments.append([cursor, duration])
+    return [segment for segment in keep_segments if segment[1] - segment[0] > 0.25]
+
+
+def trim_sponsor_segments(video_path: Path, video_info: dict) -> bool:
+    video_id = video_info.get("id")
+    duration = float(video_info.get("duration") or 0)
+    if not video_id or duration <= 0:
+        return False
+
+    skip_segments = fetch_sponsor_segments(video_id)
+    if not skip_segments:
+        return False
+
+    keep_segments = build_keep_segments(duration, skip_segments)
+    if not keep_segments:
+        return False
+    if len(keep_segments) == 1 and abs(keep_segments[0][1] - duration) < 0.25:
+        return False
+
+    temp_dir = video_path.parent / ".sponsorblock"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    list_file = temp_dir / f"{hashlib.sha1(video_path.name.encode('utf-8')).hexdigest()}.txt"
+    part_files: list[Path] = []
+
+    try:
+        for index, (start, end) in enumerate(keep_segments, start=1):
+            part_path = temp_dir / f"part_{index:03d}.mp4"
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                f"{start:.3f}",
+                "-to",
+                f"{end:.3f}",
+                "-i",
+                str(video_path),
+                "-c",
+                "copy",
+                "-avoid_negative_ts",
+                "1",
+                str(part_path),
+            ]
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            part_files.append(part_path)
+
+        list_file.write_text(
+            "".join(f"file '{part_path.name}'\n" for part_path in part_files),
+            encoding="utf-8",
+        )
+        trimmed_path = video_path.with_name(f"{video_path.stem}.trimmed{video_path.suffix}")
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_file),
+            "-c",
+            "copy",
+            str(trimmed_path),
+        ]
+        subprocess.run(cmd, check=True, cwd=temp_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        shutil.move(str(trimmed_path), str(video_path))
+        return True
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def latest_video_info(channel_url: str) -> dict:
@@ -444,6 +577,7 @@ def download_video(video_info: dict, target_path: Path, channel_name: str, episo
 def process_channel(
     channel_url: str,
     pushover_config: dict[str, str] | None,
+    trim_sponsors: bool,
 ) -> tuple[str, str] | None:
     video_info = latest_video_info(channel_url)
 
@@ -474,6 +608,14 @@ def process_channel(
     target_path, safe_channel = build_destination_paths(channel_name, video_title, episode_number)
     print(f"Downloading latest video for {safe_channel}")
     download_video(video_info, target_path, safe_channel, episode_number)
+    sponsorblock_trimmed = False
+    if trim_sponsors:
+        try:
+            sponsorblock_trimmed = trim_sponsor_segments(target_path, video_info)
+            if sponsorblock_trimmed:
+                print(f"Trimmed sponsor segments for {safe_channel}: {video_title}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"SponsorBlock trim failed for {safe_channel}: {exc}", file=sys.stderr)
     write_episode_nfo(
         target_path.with_suffix(".nfo"),
         safe_channel,
@@ -482,7 +624,12 @@ def process_channel(
     )
     write_video_index(season_dir, video_id, target_path.name)
     try:
-        send_pushover_notification(pushover_config, safe_channel, video_title)
+        send_pushover_notification(
+            pushover_config,
+            safe_channel,
+            video_title,
+            sponsorblock_trimmed,
+        )
     except Exception as exc:  # noqa: BLE001
         print(f"Notification failed for {safe_channel}: {exc}", file=sys.stderr)
     print(f"Saved to {target_path}")
@@ -517,7 +664,7 @@ def main() -> int:
 
         for channel_url in channels:
             try:
-                result = process_channel(channel_url, pushover_config)
+                result = process_channel(channel_url, pushover_config, args.trim_sponsors)
                 if result:
                     downloaded_items.append(result)
             except Exception as exc:  # noqa: BLE001

@@ -48,5 +48,6 @@ Add this to the bottom of your crontab file to run this at 23:15 daily.
 # Usage
 * `--channels` - the path and name of the file containing the list of channels
 * `--outdir` - the directory that files get downloaded to (i.e. Your Plex/Kodi media directory)
+* `--trim-sponsors` - remove SponsorBlock sponsor segments after download
 
-`python download_latest_channels.py --channels /path/to/channels.txt --outdir /yournas/videos/youtube`
+`python download_latest_channels.py --channels /path/to/channels.txt --outdir /yournas/videos/youtube --trim-sponsors`
