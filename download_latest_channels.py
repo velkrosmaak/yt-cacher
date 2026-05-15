@@ -216,8 +216,14 @@ def send_pushover_notification(
         method="POST",
     )
 
-    with urlopen(request, timeout=15) as response:
-        response.read()
+    try:
+        with urlopen(request, timeout=15) as response:
+            resp_data = response.read().decode("utf-8")
+            print(f"Pushover response: {resp_data}")
+    except Exception as exc:
+        if hasattr(exc, "read"):
+            print(f"Pushover error response: {exc.read().decode('utf-8')}", file=sys.stderr)
+        raise
 
 
 def append_run_log(log_path: Path, downloads: list[tuple[str, str]]) -> None:
