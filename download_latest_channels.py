@@ -602,6 +602,15 @@ def process_channel(
     already_downloaded = existing_video_for_id(season_dir, video_id)
     if already_downloaded:
         print(f"Skipping {channel_name}: latest video already exists at {already_downloaded}")
+        try:
+            send_pushover_notification(
+                pushover_config,
+                channel_name,
+                f"No new videos found. Latest video already exists: {video_title}",
+                False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"Notification failed for {channel_name}: {exc}", file=sys.stderr)
         return None
 
     episode_number = next_episode_number(season_dir)
