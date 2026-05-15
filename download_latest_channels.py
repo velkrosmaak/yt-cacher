@@ -196,6 +196,7 @@ def send_pushover_notification(
     if not config:
         return
 
+    print("Sending Pushover notification...")
     message = f"{channel_name}\n{episode_title}"
     if sponsorblock_trimmed:
         message += "\nSponsorBlock removed sponsor segments."
